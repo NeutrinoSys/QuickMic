@@ -1,0 +1,48 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Build QuickMic
+      run: ./build.sh
+
+    - name: Create zip archive
+      run: |
+        cd build
+        zip -r QuickMic.app.zip QuickMic.app
+        cd ..
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: build/QuickMic.app.zip
+        body: |
+          ## QuickMic ${{ github.ref_name }}
+
+          ### Installation
+          1. Download `QuickMic.app.zip` below
+          2. Unzip the file
+          3. Drag `QuickMic.app` to your Applications folder
+          4. Right-click and select "Open" on first launch
+
+          ### What's New
+          See commit history for changes in this release.
+
+          ### Features
+          - Quick microphone input switching from menubar
+          - Audio/dictation service reset (nuclear option)
+          - Perfect for fixing dictation after dock/undock
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
