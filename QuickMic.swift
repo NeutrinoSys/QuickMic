@@ -1,9 +1,11 @@
 import Cocoa
 import UserNotifications
 import CoreAudio
+import ServiceManagement
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
+    let hasShownAutoStartPromptKey = "hasShownAutoStartPrompt"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
@@ -11,11 +13,82 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Dictation Reset")
+            button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "QuickMic")
             button.image?.isTemplate = true
         }
 
         setupMenu()
+        checkFirstLaunch()
+    }
+
+    func checkFirstLaunch() {
+        let hasShownPrompt = UserDefaults.standard.bool(forKey: hasShownAutoStartPromptKey)
+
+        if !hasShownPrompt {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                self?.showAutoStartPrompt()
+            }
+        }
+    }
+
+    func showAutoStartPrompt() {
+        let alert = NSAlert()
+        alert.messageText = "Launch QuickMic at Login?"
+        alert.informativeText = "Would you like QuickMic to start automatically when you log in? You can change this later in the menu."
+        alert.addButton(withTitle: "Yes, Start at Login")
+        alert.addButton(withTitle: "No, I'll Launch Manually")
+        alert.alertStyle = .informational
+
+        let response = alert.runModal()
+        UserDefaults.standard.set(true, forKey: hasShownAutoStartPromptKey)
+
+        if response == .alertFirstButtonReturn {
+            enableAutoStart()
+        }
+    }
+
+    func isAutoStartEnabled() -> Bool {
+        if #available(macOS 13.0, *) {
+            return SMAppService.mainApp.status == .enabled
+        } else {
+            return false
+        }
+    }
+
+    func enableAutoStart() {
+        if #available(macOS 13.0, *) {
+            do {
+                try SMAppService.mainApp.register()
+                showNotification(title: "Auto-Start Enabled", message: "QuickMic will start automatically at login")
+                setupMenu() // Refresh menu to update checkmark
+            } catch {
+                showNotification(title: "Error", message: "Could not enable auto-start: \(error.localizedDescription)")
+            }
+        } else {
+            showNotification(title: "Not Available", message: "Auto-start requires macOS 13.0 or later")
+        }
+    }
+
+    func disableAutoStart() {
+        if #available(macOS 13.0, *) {
+            do {
+                try SMAppService.mainApp.unregister()
+                showNotification(title: "Auto-Start Disabled", message: "QuickMic will not start automatically")
+                setupMenu() // Refresh menu to update checkmark
+            } catch {
+                showNotification(title: "Error", message: "Could not disable auto-start: \(error.localizedDescription)")
+            }
+        } else {
+            showNotification(title: "Not Available", message: "Auto-start requires macOS 13.0 or later")
+        }
+    }
+
+    @objc func toggleAutoStart() {
+        if isAutoStartEnabled() {
+            disableAutoStart()
+        } else {
+            enableAutoStart()
+        }
     }
 
     func setupMenu() {
@@ -52,6 +125,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Reset Dictation (Nuclear)", action: #selector(resetDictation), keyEquivalent: "r"))
+
+        menu.addItem(NSMenuItem.separator())
+
+        // Auto-start toggle
+        let autoStartItem = NSMenuItem(title: "Start at Login", action: #selector(toggleAutoStart), keyEquivalent: "")
+        autoStartItem.state = isAutoStartEnabled() ? .on : .off
+        menu.addItem(autoStartItem)
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
 
